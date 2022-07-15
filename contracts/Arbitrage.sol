@@ -69,12 +69,16 @@ contract Flashloan {
             sender == address(this) && msg.sender == flashLoanPool,
             "HANDLE_FLASH_NENIED"
         );
-    }
 
-        // Note: Realize your own logic using the token from flashLoan pool.
-        // Arbitrage with DODO Flashloan
+    flashloan(_token0, _flashAmount, data); //execution for to 'callFunction'
+    // Return funds
+        IERC20(loanToken).transfer(flashLoanPool, loanAmount);
 
-
+    }    
+    
+    // Note: Realize your own logic using the token from flashLoan pool.
+    // Arbitrage with DODO Flashloan
+    
     function executeTrade(    //takes the data and encodes it packing it up to be sent out and be used.
         bool _startOnUniswap,
         address _token0,  // Pass in a different Token address to customize
@@ -90,10 +94,5 @@ contract Flashloan {
             _flashAmount,
             balanceBefore
         );
-
-       flashloan(_token0, _flashAmount, data); //execution for to 'callFunction'
     }
-    
-        // Return funds
-        IERC20(loanToken).transfer(flashLoanPool, loanAmount);
-    }
+}
