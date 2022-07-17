@@ -93,6 +93,14 @@ contract Flashloan {
             _token1,
             _flashAmount,
             balanceBefore
-        );
+        );    
+    
+    address flashLoanBase = IDODO(flashLoanPool)._BASE_TOKEN_();
+
+     if (flashLoanBase == loanToken) {
+            IDODO(flashLoanPool).flashLoan(loanAmount, 0, address(this), data);
+        } else {
+            IDODO(flashLoanPool).flashLoan(0, loanAmount, address(this), data);
+        }
     }
 }
