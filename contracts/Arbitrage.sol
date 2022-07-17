@@ -16,22 +16,7 @@ interface IDODO {
 }
 
 contract Flashloan {
-    function dodoFlashLoan(
-        address flashLoanPool, //You will make a flashloan from this DODOV2 pool
-        uint256 loanAmount,
-        address loanToken
-    ) external {
-        // Note: The data can be structured with any variables required by your logic. The following code is just an example
-        bytes memory data = abi.encode(flashLoanPool, loanToken, loanAmount);
-        address flashLoanBase = IDODO(flashLoanPool)._BASE_TOKEN_();
-
-        if (flashLoanBase == loanToken) {
-            IDODO(flashLoanPool).flashLoan(loanAmount, 0, address(this), data);
-        } else {
-            IDODO(flashLoanPool).flashLoan(0, loanAmount, address(this), data);
-        }
-    }
-
+    
     // Note: CallBack function executed by DODOV2(DVM) flashLoan pool
     // Dodo Vending Machine Factory --> 0x79887f65f83bdf15Bcc8736b5e5BcDB48fb8fE13
     function DVMFlashLoanCall(
@@ -95,7 +80,7 @@ contract Flashloan {
             balanceBefore
         );    
     
-    address flashLoanBase = IDODO(flashLoanPool)._BASE_TOKEN_();
+    address flashLoanBase = IDODO(flashLoanPool)._BASE_TOKEN_(); // DODO Flashloan code
 
      if (flashLoanBase == loanToken) {
             IDODO(flashLoanPool).flashLoan(loanAmount, 0, address(this), data);
