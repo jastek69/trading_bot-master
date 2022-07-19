@@ -55,7 +55,7 @@ contract Flashloan {
             "HANDLE_FLASH_NENIED"
         );
 
-    flashloan(_token0, _flashAmount, data); //execution for to 'callFunction'
+    flashloan(loanToken, loanAmount, data); //execution for to 'callFunction'
     // Return funds
         IERC20(loanToken).transfer(flashLoanPool, loanAmount);
 
@@ -66,17 +66,17 @@ contract Flashloan {
     
     function executeTrade(    //takes the data and encodes it packing it up to be sent out and be used.
         bool _startOnUniswap,
-        address _token0,  // Pass in a different Token address to customize
+        address loanToken,  // Pass in a different Token address to customize
         address _token1, // Pass in a different Token address to customize
-        uint256 _flashAmount
+        uint256 loanAmount
     ) external {
-        uint256 balanceBefore = IERC20(_token0).balanceOf(address(this));
+        uint256 balanceBefore = IERC20(loanToken).balanceOf(address(this));
     
         bytes memory data = abi.encode(
             _startOnUniswap,
-            _token0,
+            loanToken,
             _token1,
-            _flashAmount,
+            loanAmount,
             balanceBefore
         );    
     
