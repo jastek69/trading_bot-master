@@ -15,8 +15,18 @@ interface IDODO {
     function _BASE_TOKEN_() external view returns (address);
 }
 
-contract Flashloan {
-    
+contract Flashloan {    
+    IUniswapV2Router02 public immutable sRouter;
+    IUniswapV2Router02 public immutable uRouter;
+
+    address public owner;
+
+    constructor(address _sRouter, address _uRouter) {
+        sRouter = IUniswapV2Router02(_sRouter); // Sushiswap
+        uRouter = IUniswapV2Router02(_uRouter); // Uniswap
+        owner = msg.sender; // NOTE: Can place in Ethereum address of Eth wallet
+    }
+
     // Note: CallBack function executed by DODOV2(DVM) flashLoan pool
     // Dodo Vending Machine Factory --> 0x79887f65f83bdf15Bcc8736b5e5BcDB48fb8fE13
     function DVMFlashLoanCall(
@@ -89,3 +99,10 @@ contract Flashloan {
         }
     }
 }
+
+
+
+
+
+
+
