@@ -16,11 +16,14 @@ interface IDODO {
 }
 
 contract Flashloan {    
+    flashLoanPool public Polygon(0x5333Eb1E32522F1893B7C9feA3c263807A02d561);
     IUniswapV2Router02 public immutable sRouter;
     IUniswapV2Router02 public immutable uRouter;
 
     address public owner;
 
+
+    
     constructor(address _sRouter, address _uRouter) {
         sRouter = IUniswapV2Router02(_sRouter); // Sushiswap
         uRouter = IUniswapV2Router02(_uRouter); // Uniswap
