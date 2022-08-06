@@ -16,7 +16,7 @@ interface IDODO {
 }
 
 contract Flashloan {    
-    address constant flashLoanPool = address(0x5333Eb1E32522F1893B7C9feA3c263807A02d561);
+    address constant flashLoanPool = 0x5333Eb1E32522F1893B7C9feA3c263807A02d561;
     IUniswapV2Router02 public immutable sRouter;
     IUniswapV2Router02 public immutable uRouter;
 
@@ -60,7 +60,7 @@ contract Flashloan {
         uint256,
         bytes calldata data
     ) internal {
-        (address flashLoanPool, address loanToken, uint256 loanAmount) = abi
+        (address flashLoanPool, address _token0, uint256 loanAmount) = abi
             .decode(data, (address, address, uint256));
 
         require(
@@ -68,9 +68,9 @@ contract Flashloan {
             "HANDLE_FLASH_NENIED"
         );
 
-    flashloan(loanToken, loanAmount, data); //execution for to 'callFunction'
+    flashloan(_token0, loanAmount, data); //execution for to 'callFunction'
     // Return funds
-        IERC20(loanToken).transfer(flashLoanPool, loanAmount);
+        IERC20(_token0).transfer(flashLoanPool, loanAmount);
 
     }    
     
@@ -79,15 +79,15 @@ contract Flashloan {
     
     function executeTrade(    //takes the data and encodes it packing it up to be sent out and be used.
         bool _startOnUniswap,
-        address loanToken,  // Pass in a different Token address to customize
+        address _token0,  // Pass in a different Token address to customize
         address _token1, // Pass in a different Token address to customize
         uint256 loanAmount
     ) external {
-        uint256 balanceBefore = IERC20(loanToken).balanceOf(address(this));
+        uint256 balanceBefore = IERC20(_token0).balanceOf(address(this));
     
         bytes memory data = abi.encode(
             _startOnUniswap,
-            loanToken,
+            _token0,
             _token1,
             loanAmount,
             balanceBefore
@@ -95,7 +95,7 @@ contract Flashloan {
     
     address flashLoanBase = IDODO(flashLoanPool)._BASE_TOKEN_(); // DODO Flashloan code
 
-     if (flashLoanBase == loanToken) {
+     if (flashLoanBase == _token0) {
             IDODO(flashLoanPool).flashLoan(loanAmount, 0, address(this), data);
         } else {
             IDODO(flashLoanPool).flashLoan(0, loanAmount, address(this), data);
