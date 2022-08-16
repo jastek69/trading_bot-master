@@ -22,7 +22,6 @@ contract Flashloan {
 
     address public owner;
 
-
     
     constructor(address _sRouter, address _uRouter) {
         sRouter = IUniswapV2Router02(_sRouter); // Sushiswap
@@ -61,7 +60,7 @@ contract Flashloan {
         bytes calldata data
     ) internal {
         (address flashLoanPool, address _token0, uint256 loanAmount) = abi
-            .decode(data, (address, address, uint256));
+            .decode(data, (bool, address, address, uint256, uint256));
 
         require(
             sender == address(this) && msg.sender == flashLoanPool,
@@ -101,11 +100,96 @@ contract Flashloan {
             IDODO(flashLoanPool).flashLoan(0, loanAmount, address(this), data);
         }
     }
+    
+
+     function _swapOnUniswap(
+        address[] memory _path,
+        uint256 _amountIn,
+        uint256 _amountOut
+    ) internal {
+        require(
+            IERC20(_path[0]).approve(address(uRouter), _amountIn),
+            "Uniswap approval failed."
+        );
+
+        uRouter.swapExactTokensForTokens(
+            _amountIn,
+            _amountOut,
+            _path,
+            address(this),
+            (block.timestamp + 1200)
+        );
+    }
+
+    function _swapOnSushiswap(
+        address[] memory _path,
+        uint256 _amountIn,
+        uint256 _amountOut
+    ) internal {
+        require(
+            IERC20(_path[0]).approve(address(sRouter), _amountIn),
+            "Sushiswap approval failed."
+        );
+
+        sRouter.swapExactTokensForTokens(
+            _amountIn,
+            _amountOut,
+            _path,
+            address(this),
+            (block.timestamp + 1200)
+        );
+    }
+
+
+function _flashLoanCallBack(
+        address sender, // address of sender
+        uint256,        // base amount
+        uint256,        // quote amount
+        bytes calldata data
+    ) internal {
+        (bool startOnUniSwap, address _token0, address _token1 , uint256 loanAmount, uint256 _balanceBefore) = abi.decode(data, (bool, address, address, uint256, uint256));
+
+        require(
+            sender == address(this) && msg.sender == flashLoanPool,
+            "HANDLE_FLASH_NENIED"
+        );
+
+    address[] memory path = new address[](2);
+    
+        path[0] = token0;
+        path[1] = token1;
+
+        if (startOnUniswap) {
+            _swapOnUniswap(path, flashAmount, 0);
+
+            path[0] = token1;
+            path[1] = token0;
+
+            _swapOnSushiswap(
+                path,
+                IERC20(token1).balanceOf(address(this)),
+                (flashAmount + 1)
+            );
+        } else {
+            _swapOnSushiswap(path, flashAmount, 0);
+
+            path[0] = token1;
+            path[1] = token0;
+
+            _swapOnUniswap(
+                path,
+                IERC20(token1).balanceOf(address(this)),
+                (flashAmount + 1)
+            );
+        }
+
+        IERC20(token0).transfer(
+            owner,
+            IERC20(token0).balanceOf(address(this)) - (flashAmount + 1)
+        );
+
+        // Return funds
+        IERC20(_token0).transfer(flashLoanPool, loanAmount);
+    }
+
 }
-
-
-
-
-
-
-
