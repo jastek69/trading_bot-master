@@ -53,26 +53,6 @@ contract Flashloan {
         _flashLoanCallBack(sender, baseAmount, quoteAmount, data);
     }
 
-    function _flashLoanCallBack(
-        address sender,
-        uint256,
-        uint256,
-        bytes calldata data
-    ) internal {
-        (address flashLoanPool, address _token0, uint256 loanAmount) = abi
-            .decode(data, (bool, address, address, uint256, uint256));
-
-        require(
-            sender == address(this) && msg.sender == flashLoanPool,
-            "HANDLE_FLASH_NENIED"
-        );
-
-    flashloan(_token0, loanAmount, data); //execution for to 'callFunction'
-    // Return funds
-        IERC20(_token0).transfer(flashLoanPool, loanAmount);
-
-    }    
-    
     // Note: Realize your own logic using the token from flashLoan pool.
     // Arbitrage with DODO Flashloan
     
@@ -80,7 +60,7 @@ contract Flashloan {
         bool _startOnUniswap,
         address _token0,  // Pass in a different Token address to customize
         address _token1, // Pass in a different Token address to customize
-        uint256 loanAmount
+        uint256 flashAmount
     ) external {
         uint256 balanceBefore = IERC20(_token0).balanceOf(address(this));
     
@@ -88,16 +68,16 @@ contract Flashloan {
             _startOnUniswap,
             _token0,
             _token1,
-            loanAmount,
+            flashAmount,
             balanceBefore
         );    
     
     address flashLoanBase = IDODO(flashLoanPool)._BASE_TOKEN_(); // DODO Flashloan code
 
      if (flashLoanBase == _token0) {
-            IDODO(flashLoanPool).flashLoan(loanAmount, 0, address(this), data);
+            IDODO(flashLoanPool).flashLoan(flashAmount, 0, address(this), data);
         } else {
-            IDODO(flashLoanPool).flashLoan(0, loanAmount, address(this), data);
+            IDODO(flashLoanPool).flashLoan(0, flashAmount, address(this), data);
         }
     }
     
@@ -147,7 +127,7 @@ function _flashLoanCallBack(
         uint256,        // quote amount
         bytes calldata data
     ) internal {
-        (bool startOnUniSwap, address _token0, address _token1 , uint256 loanAmount, uint256 _balanceBefore) = abi.decode(data, (bool, address, address, uint256, uint256));
+        (bool startOnUniSwap, address token0, address token1 , uint256 flashAmount, uint256 _balanceBefore) = abi.decode(data, (bool, address, address, uint256, uint256));
 
         require(
             sender == address(this) && msg.sender == flashLoanPool,
@@ -159,37 +139,37 @@ function _flashLoanCallBack(
         path[0] = token0;
         path[1] = token1;
 
-        if (startOnUniswap) {
+        if (startOnUniswap) { //Buy on UniSwap
             _swapOnUniswap(path, flashAmount, 0);
 
             path[0] = token1;
             path[1] = token0;
 
-            _swapOnSushiswap(
+            _swapOnSushiswap(  //Sell on Sushiswap
                 path,
                 IERC20(token1).balanceOf(address(this)),
                 (flashAmount + 1)
             );
         } else {
-            _swapOnSushiswap(path, flashAmount, 0);
+            _swapOnSushiswap(path, flashAmount, 0);  //Buy on SushiSwap
 
             path[0] = token1;
             path[1] = token0;
 
-            _swapOnUniswap(
+            _swapOnUniswap(     // Sell on Uniswap
                 path,
                 IERC20(token1).balanceOf(address(this)),
                 (flashAmount + 1)
             );
         }
-
+  
         IERC20(token0).transfer(
             owner,
             IERC20(token0).balanceOf(address(this)) - (flashAmount + 1)
         );
 
         // Return funds
-        IERC20(_token0).transfer(flashLoanPool, loanAmount);
+        IERC20(token0).transfer(flashLoanPool, flashAmount);
     }
 
 }
