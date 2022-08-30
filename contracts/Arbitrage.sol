@@ -1,8 +1,9 @@
 //SPDX-License-Identifier: Unlicense
 pragma solidity ^0.8.0;
 
+import "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "hardhat/console.sol";
+
 
 interface IDODO {
     function flashLoan(
@@ -37,8 +38,10 @@ contract Flashloan {
         uint256 quoteAmount,
         bytes calldata data
     ) external {
-        console.log("Vending Machine Pool Called...");
-        _flashLoanCallBack(sender, baseAmount, quoteAmount, data);
+        (
+        "Vending Machine Pool Called...",
+        _flashLoanCallBack(sender, baseAmount, quoteAmount, data)
+        );
     }
 
     // Note: CallBack function executed by DODOV2(DPP) flashLoan pool
@@ -49,8 +52,10 @@ contract Flashloan {
         uint256 quoteAmount,
         bytes calldata data
     ) external {
-        console.log("Private Pool Called...");
-        _flashLoanCallBack(sender, baseAmount, quoteAmount, data);
+        (
+        "Private Pool Called...",
+        _flashLoanCallBack(sender, baseAmount, quoteAmount, data)
+        );
     }
 
     // Note: Realize your own logic using the token from flashLoan pool.
@@ -127,7 +132,7 @@ function _flashLoanCallBack(
         uint256,        // quote amount
         bytes calldata data
     ) internal {
-        (bool startOnUniSwap, address token0, address token1 , uint256 flashAmount, uint256 _balanceBefore) = abi.decode(data, (bool, address, address, uint256, uint256));
+        (bool _startOnUniSwap, address token0, address token1 , uint256 flashAmount, uint256 _balanceBefore) = abi.decode(data, (bool, address, address, uint256, uint256));
 
         require(
             sender == address(this) && msg.sender == flashLoanPool,
@@ -139,7 +144,7 @@ function _flashLoanCallBack(
         path[0] = token0;
         path[1] = token1;
 
-        if (startOnUniswap) { //Buy on UniSwap
+        if (_startOnUniswap) { //Buy on UniSwap
             _swapOnUniswap(path, flashAmount, 0);
 
             path[0] = token1;
@@ -165,7 +170,7 @@ function _flashLoanCallBack(
   
         IERC20(token0).transfer(
             owner,
-            IERC20(token0).balanceOf(address(this)) - (flashAmount + 1)
+            IERC20(token0).balanceOf(address(this)) - flashAmount
         );
 
         // Return funds
