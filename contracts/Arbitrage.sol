@@ -38,10 +38,8 @@ contract Flashloan {
         uint256 quoteAmount,
         bytes calldata data
     ) external {
-        (
-        "Vending Machine Pool Called...",
-        _flashLoanCallBack(sender, baseAmount, quoteAmount, data)
-        );
+        
+        _flashLoanCallBack(sender, baseAmount, quoteAmount, data);
     }
 
     // Note: CallBack function executed by DODOV2(DPP) flashLoan pool
@@ -52,10 +50,7 @@ contract Flashloan {
         uint256 quoteAmount,
         bytes calldata data
     ) external {
-        (
-        "Private Pool Called...",
-        _flashLoanCallBack(sender, baseAmount, quoteAmount, data)
-        );
+        _flashLoanCallBack(sender, baseAmount, quoteAmount, data);
     }
 
     // Note: Realize your own logic using the token from flashLoan pool.
@@ -93,8 +88,8 @@ contract Flashloan {
         uint256 _amountOut
     ) internal {
         require(
-            IERC20(_path[0]).approve(address(uRouter), _amountIn),
-            "Uniswap approval failed."
+            IERC20(_path[0]).approve(address(uRouter), _amountIn)
+           // "Uniswap approval failed."
         );
 
         uRouter.swapExactTokensForTokens(
@@ -112,8 +107,8 @@ contract Flashloan {
         uint256 _amountOut
     ) internal {
         require(
-            IERC20(_path[0]).approve(address(sRouter), _amountIn),
-            "Sushiswap approval failed."
+            IERC20(_path[0]).approve(address(sRouter), _amountIn)
+           // "Sushiswap approval failed."
         );
 
         sRouter.swapExactTokensForTokens(
@@ -132,11 +127,11 @@ function _flashLoanCallBack(
         uint256,        // quote amount
         bytes calldata data
     ) internal {
-        (bool _startOnUniSwap, address token0, address token1 , uint256 flashAmount, uint256 _balanceBefore) = abi.decode(data, (bool, address, address, uint256, uint256));
+        (bool _startOnUniswap, address token0, address token1 , uint256 flashAmount, uint256 _balanceBefore) = abi.decode(data, (bool, address, address, uint256, uint256));
 
         require(
-            sender == address(this) && msg.sender == flashLoanPool,
-            "HANDLE_FLASH_NENIED"
+            sender == address(this) && msg.sender == flashLoanPool
+           // "HANDLE_FLASH_NENIED"
         );
 
     address[] memory path = new address[](2);
