@@ -1,4 +1,4 @@
-//SPDX-License-Identifier: Unlicense
+// SPDX-License-Identifier: Unlicense
 pragma solidity ^0.8.0;
 
 import "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
@@ -127,7 +127,7 @@ function _flashLoanCallBack(
         uint256,        // quote amount
         bytes calldata data
     ) internal {
-        (bool _startOnUniswap, address token0, address token1 , uint256 flashAmount, uint256 _balanceBefore) = abi.decode(data, (bool, address, address, uint256, uint256));
+        (bool _startOnUniswap, address token0, address token1 , uint256 flashAmount) = abi.decode(data, (bool, address, address, uint256));
 
         require(
             sender == address(this) && msg.sender == flashLoanPool
