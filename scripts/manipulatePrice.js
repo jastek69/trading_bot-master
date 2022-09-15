@@ -7,6 +7,7 @@ const {
     Token,
     WETH
 } = require("@uniswap/sdk")
+
 const IUniswapV2Router02 = require('@uniswap/v2-periphery/build/IUniswapV2Router02.json')
 const IUniswapV2Factory = require("@uniswap/v2-core/build/IUniswapV2Factory.json")
 const IERC20 = require('@openzeppelin/contracts/build/contracts/ERC20.json')
@@ -15,6 +16,9 @@ const IERC20 = require('@openzeppelin/contracts/build/contracts/ERC20.json')
 
 const chainId = ChainId.MAINNET
 const web3 = new Web3('http://127.0.0.1:7545')
+
+
+
 
 // -- IMPORT HELPER FUNCTIONS -- //
 
@@ -33,7 +37,7 @@ const sRouter = new web3.eth.Contract(IUniswapV2Router02.abi, config.SUSHISWAP.V
 const V2_FACTORY_TO_USE = uFactory
 const V2_ROUTER_TO_USE = uRouter
 
-const UNLOCKED_ACCOUNT = '0x0e5069514a3Dd613350BAB01B58FD850058E5ca4' // SHIB Unlocked Account
+const UNLOCKED_ACCOUNT = '0xf977814e90da44bfa03b6295a0616a897441acec2' // USDC Unlocked Account
 const ERC20_ADDRESS = process.env.ARB_AGAINST
 const AMOUNT = '40500000000000' // 40,500,000,000,000 SHIB -- Tokens will automatically be converted to wei
 const GAS = 450000
@@ -41,7 +45,7 @@ const GAS = 450000
 // -- SETUP ERC20 CONTRACT & TOKEN -- //
 
 const ERC20_CONTRACT = new web3.eth.Contract(IERC20.abi, ERC20_ADDRESS)
-const WETH_CONTRACT = new web3.eth.Contract(IERC20.abi, WETH[chainId].address)
+const WETH_CONTRACT = new web3.eth.Contract(IERC20.abi, process.env.ARB_FOR)
 
 // -- MAIN SCRIPT -- //
 
@@ -49,7 +53,7 @@ const main = async () => {
     const accounts = await web3.eth.getAccounts()
     const account = accounts[1] // This will be the account to recieve WETH after we perform the swap to manipulate price
 
-    const pairContract = await getPairContract(V2_FACTORY_TO_USE, ERC20_ADDRESS, WETH[chainId].address)
+    const pairContract = await getPairContract(V2_FACTORY_TO_USE, ERC20_ADDRESS, process.env.ARB_FOR)
     const token = new Token(
         ChainId.MAINNET,
         ERC20_ADDRESS,
@@ -93,7 +97,7 @@ async function manipulatePrice(token, account) {
         web3.utils.toWei(AMOUNT, 'ether')
     )
 
-    const path = [token.address, WETH[chainId].address]
+    const path = [token.address, process.env.ARB_FOR]
     const deadline = Math.floor(Date.now() / 1000) + 60 * 20 // 20 minutes
 
     await ERC20_CONTRACT.methods.approve(V2_ROUTER_TO_USE._address, amountIn).send({ from: UNLOCKED_ACCOUNT })
