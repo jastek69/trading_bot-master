@@ -54,7 +54,7 @@ contract Flashloan {
     }
 
     // Note: Realize your own logic using the token from flashLoan pool.
-    // Arbitrage with DODO Flashloan
+    // Arbitrage with WETH/USDC Pair
     
     function executeTrade(    //takes the data and encodes it packing it up to be sent out and be used.
         bool _startOnUniswap,
@@ -89,7 +89,7 @@ contract Flashloan {
     ) internal {
         require(
             IERC20(_path[0]).approve(address(uRouter), _amountIn)
-           // "Uniswap approval failed."
+           // Uniswap approval failed check
         );
 
         uRouter.swapExactTokensForTokens(
@@ -108,7 +108,7 @@ contract Flashloan {
     ) internal {
         require(
             IERC20(_path[0]).approve(address(sRouter), _amountIn)
-           // "Sushiswap approval failed."
+           // Sushiswap approval fail check
         );
 
         sRouter.swapExactTokensForTokens(
@@ -131,7 +131,7 @@ function _flashLoanCallBack(
 
         require(
             sender == address(this) && msg.sender == flashLoanPool
-           // "HANDLE_FLASH_NENIED"
+           // "HANDLE_FLASH_DENIED"
         );
 
     address[] memory path = new address[](2);
