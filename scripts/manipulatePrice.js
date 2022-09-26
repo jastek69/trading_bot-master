@@ -37,7 +37,7 @@ const sRouter = new web3.eth.Contract(IUniswapV2Router02.abi, config.SUSHISWAP.V
 const V2_FACTORY_TO_USE = uFactory
 const V2_ROUTER_TO_USE = uRouter
 
-const UNLOCKED_ACCOUNT = '0xf977814e90da44bfa03b6295a0616a897441acec2' // USDC Unlocked Account
+const UNLOCKED_ACCOUNT = '0xf977814e90da44bfa03b6295a0616a897441acec' // USDC Unlocked Account
 const ERC20_ADDRESS = process.env.ARB_AGAINST
 const AMOUNT = '40500000000000' // 40,500,000,000,000 SHIB -- Tokens will automatically be converted to wei
 const GAS = 450000
@@ -57,7 +57,7 @@ const main = async () => {
     const token = new Token(
         ChainId.MAINNET,
         ERC20_ADDRESS,
-        18,
+        6, // USDC so 6 instead of 18 decimals
         await ERC20_CONTRACT.methods.symbol().call(),
         await ERC20_CONTRACT.methods.name().call()
     )
