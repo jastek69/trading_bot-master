@@ -100,29 +100,8 @@ async function manipulatePrice(token, account) {
     const path = [token.address, process.env.ARB_FOR]
     const deadline = Math.floor(Date.now() / 1000) + 60 * 20 // 20 minutes
 
-    // await ERC20_CONTRACT.methods.approve(V2_ROUTER_TO_USE._address, amountIn).send({ from: UNLOCKED_ACCOUNT })
-    // const receipt = await V2_ROUTER_TO_USE.methods.swapExactTokensForTokens(amountIn, 0, path, account, deadline).send({ from: UNLOCKED_ACCOUNT, gas: GAS });
-
-    const approvalTransaction = {
-        'from' : '0x79C35CA9424EC9c5194F66D1C78B712e5B3ED456',
-        'to' : ERC20_CONTRACT._address,
-        'data' : ERC20_CONTRACT.methods.approve(V2_ROUTER_TO_USE._address, web3.utils.fromWei(amountIn).toString()).encodeABI(),
-        'gas' : GAS
-    }
-    const transaction = {
-        'from' : '0x79C35CA9424EC9c5194F66D1C78B712e5B3ED456',
-        'to' : V2_ROUTER_TO_USE._address,
-        'data' : V2_ROUTER_TO_USE.methods.swapExactTokensForTokens(web3.utils.fromWei(amountIn).toString(), 0, path, account, deadline).encodeABI(),
-        'gas' : GAS
-        
-    }
-    const signedApprovalTx = await web3.eth.accounts.signTransaction(approvalTransaction, process.env.DEPLOYMENT_ACCOUNT_KEY, )
-    const signedTx = await web3.eth.accounts.signTransaction(transaction, process.env.DEPLOYMENT_ACCOUNT_KEY)
-    
-    await web3.eth.sendSignedTransaction(signedApprovalTx.rawTransaction)
-    const receipt = await web3.eth.sendSignedTransaction(signedTx.rawTransaction)
-
-
+    await ERC20_CONTRACT.methods.approve(V2_ROUTER_TO_USE._address, amountIn).send({ from: UNLOCKED_ACCOUNT })
+    const receipt = await V2_ROUTER_TO_USE.methods.swapExactTokensForTokens(amountIn, 0, path, account, deadline).send({ from: UNLOCKED_ACCOUNT, gas: GAS });
 
     console.log(`Swap Complete!\n`)
 
