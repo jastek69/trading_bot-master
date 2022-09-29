@@ -39,8 +39,8 @@ const V2_ROUTER_TO_USE = uRouter
 
 const UNLOCKED_ACCOUNT = '0xf977814e90da44bfa03b6295a0616a897441acec' // USDC Unlocked Account
 const ERC20_ADDRESS = process.env.ARB_AGAINST
-const AMOUNT = '40500000000000' // 40,500,000,000,000 SHIB -- Tokens will automatically be converted to wei
-const GAS = 450000
+const AMOUNT = '15000000' // 15,000,000 USDC -- Tokens will automatically be converted to wei
+const GAS = 15000
 
 // -- SETUP ERC20 CONTRACT & TOKEN -- //
 
@@ -62,12 +62,12 @@ const main = async () => {
         await ERC20_CONTRACT.methods.name().call()
     )
 
-    // Fetch price of SHIB/WETH before we execute the swap
+    // Fetch price of USDC/WETH before we execute the swap
     const priceBefore = await calculatePrice(pairContract)
 
     await manipulatePrice(token, account)
 
-    // Fetch price of SHIB/WETH after the swap
+    // Fetch price of USDC/WETH after the swap
     const priceAfter = await calculatePrice(pairContract)
 
     const data = {
@@ -78,7 +78,7 @@ const main = async () => {
     console.table(data)
 
     let balance = await WETH_CONTRACT.methods.balanceOf(account).call()
-    balance = web3.utils.fromWei(balance.toString(), 'ether')
+    balance = web3.utils.fromWei(balance.toString(), 'mwei')    //Note: Usiing USDC so switch to mwei instead of ether
 
     console.log(`\nBalance in reciever account: ${balance} WETH\n`)
 }
@@ -94,7 +94,7 @@ async function manipulatePrice(token, account) {
     console.log(`Output Token: ${WETH[chainId].symbol}\n`)
 
     const amountIn = new web3.utils.BN(
-        web3.utils.toWei(AMOUNT, 'ether')
+        web3.utils.toWei(AMOUNT, 'mwei')   // Note: Using USDC so switch to mwei instead of ether
     )
 
     const path = [token.address, process.env.ARB_FOR]
