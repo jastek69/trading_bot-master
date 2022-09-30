@@ -40,7 +40,7 @@ const V2_ROUTER_TO_USE = uRouter
 const UNLOCKED_ACCOUNT = '0xf977814e90da44bfa03b6295a0616a897441acec' // USDC Unlocked Account
 const ERC20_ADDRESS = process.env.ARB_AGAINST
 const AMOUNT = '15000000' // 15,000,000 USDC -- Tokens will automatically be converted to wei
-const GAS = 15000
+const GAS = 450000
 
 // -- SETUP ERC20 CONTRACT & TOKEN -- //
 
