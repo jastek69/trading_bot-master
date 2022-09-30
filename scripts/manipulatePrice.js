@@ -51,7 +51,7 @@ const WETH_CONTRACT = new web3.eth.Contract(IERC20.abi, process.env.ARB_FOR)
 
 const main = async () => {
     const accounts = await web3.eth.getAccounts()
-    const account = accounts[1] // This will be the account to recieve WETH after we perform the swap to manipulate price
+    const account = accounts[1] // This will be the account to receive WETH after we perform the swap to manipulate price
 
     const pairContract = await getPairContract(V2_FACTORY_TO_USE, ERC20_ADDRESS, process.env.ARB_FOR)
     const token = new Token(
