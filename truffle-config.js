@@ -6,7 +6,7 @@ const HDWalletProvider = require("@truffle/hdwallet-provider")
 
 const privateKeys = process.env.PRIVATE_KEYS || ""
 
-const maticmainnet_rpc_url = 'wss://polygon-mainnet.g.alchemy.com/v2/https://rpc-mainnet.matic.network'
+const maticmainnet_rpc_url = 'https://rpc-mainnet.matic.network'
 const maticmumbai_rpc_url = 'https://rpc-mumbai.matic.today'
 
 
