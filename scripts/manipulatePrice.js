@@ -78,9 +78,9 @@ const main = async () => {
     console.table(data)
 
     let balance = await WETH_CONTRACT.methods.balanceOf(account).call()
-    balance = web3.utils.fromWei(balance.toString(), 'mwei')    //Note: Usiing USDC so switch to mwei instead of ether
+    balance = web3.utils.fromWei(balance.toString(), 'mwei')    //Note: Using USDC so switch to mwei instead of ether
 
-    console.log(`\nBalance in reciever account: ${balance} WETH\n`)
+    console.log(`\nBalance in receiver account: ${balance} WETH\n`)
 }
 
 main()
