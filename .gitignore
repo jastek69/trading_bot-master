@@ -30,6 +30,8 @@ coverage.json
 .env.production.local
 .secrets.json
 
+.truffle-config.js
+
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
