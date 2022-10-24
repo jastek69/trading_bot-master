@@ -10,8 +10,8 @@ const { uFactory, uRouter, sFactory, sRouter, web3, arbitrage } = require('./hel
 // -- .ENV VALUES HERE -- //
 
 const arbFor = process.env.ARB_FOR // This is the address of token we are attempting to arbitrage (WETH)
-const arbAgainst = process.env.ARB_AGAINST // SHIB
-const account = process.env.ACCOUNT // Account to recieve profit
+const arbAgainst = process.env.ARB_AGAINST // USDC
+const account = process.env.ACCOUNT // Account to receive profit
 const units = process.env.UNITS // Used for price display/reporting
 const difference = process.env.PRICE_DIFFERENCE
 const gas = process.env.GAS_LIMIT
@@ -135,7 +135,7 @@ const determineProfitability = async (_routerPath, _token0Contract, _token0, _to
     console.log(`Determining Profitability...\n`)
 
     // This is where you can customize your conditions on whether a profitable trade is possible.
-    // This is a basic example of trading WETH/SHIB...
+    // Trading: WETH/USDC
 
     let reserves, exchangeToBuy, exchangeToSell
 
@@ -205,7 +205,7 @@ const determineProfitability = async (_routerPath, _token0Contract, _token0, _to
 
     } catch (error) {
         console.log(error.data.stack)
-        console.log(`\nError occured while trying to determine profitability...\n`)
+        console.log(`\nError occurred while trying to determine profitability...\n`)
         console.log(`This can typically happen because an issue with reserves, see README for more information.\n`)
         return false
     }
