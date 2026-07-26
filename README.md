@@ -90,6 +90,28 @@ In another terminal:
 This impersonates a USDC whale and dumps USDC into the Sushiswap pair, pushing the WETH price
 up on Sushi so the bot detects a "sell on Sushiswap, buy on Uniswap v4" opportunity.
 
+## Pair Scanner
+
+`npm run scan` (or `node scripts/scan-pairs.js`) finds and ranks every viable arbitrage pair:
+
+1. Enumerates all Sushiswap pairs containing WETH with reserves above `MIN_WETH_RESERVE` (default 3 WETH).
+2. Derives the candidate v4 PoolIds for each token directly (hookless pools, 4 standard fee
+   tiers, native-ETH and WETH variants) and probes them via StateView — no event scanning.
+3. For each match, measures the current spread, the fee hurdle (v4 fee + 0.30% Sushi + gas),
+   a real round-trip simulation of `PROBE_AMOUNT` WETH in both directions (V4Quoter + router),
+   and how many of the past `SAMPLE_DAYS` days the spread exceeded the hurdle (archive samples).
+4. Ranks results and writes a config-ready `pair-report.json`.
+
+How to read the output:
+- **"tradable"** means the probe round trip lands near the fee hurdle — both sides are deep
+  enough to actually execute. A pool showing "thin v4 side" with a persistently large spread
+  is a mirage: the v4 pool exists but has dust liquidity, which is *why* the spread persists.
+- **UNSAFE** flags tokens the contract cannot trade correctly (rebasing/fee-on-transfer, e.g. AMPL).
+- To adopt a pair: set `ARB_AGAINST` to its `quoteToken` in `.env` and copy its `v4Pool`
+  settings into `config.json` under `UNISWAP_V4.POOL`.
+
+Env knobs: `MIN_WETH_RESERVE`, `PROBE_AMOUNT`, `SAMPLE_DAYS`.
+
 ## About config.json
 Under `PROJECT_SETTINGS`:
 - **isLocal** — `true`: bot connects to `ws://127.0.0.1:8545` (hardhat node); `false`: mainnet via Alchemy.

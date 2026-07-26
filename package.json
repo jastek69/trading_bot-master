@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "description": "Uniswap v4 / Sushiswap arbitrage bot using v4 flash accounting",
   "scripts": {
-    "start": "node bot.js"
+    "start": "node bot.js",
+    "scan": "node scripts/scan-pairs.js"
   },
   "dependencies": {
     "@uniswap/v4-core": "^1.0.2",
