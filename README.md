@@ -1,168 +1,250 @@
-# Trading Bot — Uniswap v4
+# Executive Summary
 
-Arbitrage bot that trades a **Uniswap v4** pool against a **Sushiswap (V2)** pair.
+An arbitrage bot that trades a **Uniswap v4** pool against a **Sushiswap (V2)**
+pair on Ethereum mainnet. It watches both venues for price dislocation, simulates
+the round trip before committing, and executes atomically inside the v4
+PoolManager's unlock callback.
 
-Instead of borrowing from an external flash loan provider (the old version used Balancer), the
-`ArbitrageV4` contract uses **v4 flash accounting**: all swaps run inside the PoolManager's
-`unlock` callback and only net balances settle at the end of the transaction — no upfront
-capital and no flash loan fee.
+Because it uses **v4 flash accounting** rather than an external flash loan, it
+needs no upfront capital and pays no loan fee — the arbitrage funds itself within
+a single transaction, and reverts as a whole if it would not profit.
 
-## Technology Stack & Tools
+Ships with a pair scanner that ranks which markets are actually arbitrageable, and
+optional risk telemetry that feeds a separate SOAR pipeline.
 
-- Solidity 0.8.26 (Cancun EVM — required by v4's transient storage)
-- Javascript (Node 20+, see `.nvmrc`)
-- [Hardhat](https://hardhat.org/) (Development Framework)
-- [Ethers.js v6](https://docs.ethers.org/v6/) (Blockchain Interaction)
-- [Alchemy](https://www.alchemy.com/) (Blockchain Connection)
-- [Uniswap v4](https://docs.uniswap.org/contracts/v4/overview) (PoolManager, StateView, V4Quoter)
-- [Sushiswap](https://www.sushi.com/) (V2 router/pairs — Sushi has no v4)
+---
+
+## Problem
+
+Cross-DEX arbitrage is a well-understood strategy with three practical obstacles.
+
+**Capital.** Naively, buying on one venue to sell on another requires holding
+inventory. The usual answer is a flash loan, which adds a fee and a dependency on
+a third-party lender's liquidity.
+
+**Uniswap v4 broke the standard integration.** v4 replaced per-pair contracts with
+a single `PoolManager` singleton. There is no pair address to query, no
+`getReserves()` to read, and no per-pool `Swap` event to subscribe to. Every bot
+written against V2/V3 needs rebuilding, not porting.
+
+**Most apparent opportunities are not real.** A large, persistent spread between
+two venues usually means one side has no liquidity to trade against. Acting on
+quoted prices without simulating the actual round trip loses money on slippage
+while appearing profitable on paper.
+
+---
+
+## Solution
+
+**Self-funding execution.** `ArbitrageV4.sol` calls `poolManager.unlock()`, then
+performs both legs inside the callback. Flash accounting lets it `take()` tokens
+before paying for them and settle only the net at the end. If the round trip does
+not clear `minProfit`, the whole transaction reverts and the only cost is gas.
+
+**v4-native market data.** Prices come from `StateView.getSlot0()` (`sqrtPriceX96`)
+rather than reserves; swaps are detected from PoolManager events filtered by
+PoolId; and trade simulation uses the official `V4Quoter`. Native-ETH pools are
+supported by wrapping and unwrapping around the Sushiswap leg, which matters
+because that is where most v4 ETH liquidity actually sits.
+
+**Verify before trading.** `npm run scan` enumerates every Sushiswap WETH pair
+with real reserves, derives the candidate v4 PoolIds directly (all four fee tiers,
+native and WETH variants), and probes them. For each match it computes the fee
+hurdle, simulates a real round trip in both directions, and samples fourteen days
+of historical spreads. Pairs whose spread looks attractive but whose round trip
+loses 90%+ are flagged `thin v4 side` rather than ranked as opportunities.
+
+---
 
 ## Architecture
 
-### On-chain: `contracts/ArbitrageV4.sol`
-- `executeTrade(TradeParams)` (owner-only) calls `poolManager.unlock()`.
-- Inside `unlockCallback`:
-  - **Start on Uniswap** (`startOnUniswap = true`): sell WETH/ETH on the v4 pool, `take()` the
-    output token, sell it for WETH on Sushiswap, then `settle()` the v4 debt. The v4 swap
-    itself acts as the flash loan.
-  - **Start on Sushiswap** (`startOnUniswap = false`): flash-`take()` WETH/ETH from the
-    PoolManager, sell it on Sushiswap, swap the proceeds back through the v4 pool, and net
-    the credit against the debt.
-- Supports **native ETH pools** (currency0 = `0x0`, where most v4 liquidity lives) by
-  wrapping/unwrapping WETH around the Sushiswap leg.
-- `minProfit` makes unprofitable trades revert instead of settling at a loss.
-- Profit accrues in the contract (WETH or ETH); withdraw with `withdrawToken`/`withdrawETH`.
+```
+PoolManager Swap event (filtered by PoolId)
+Sushiswap pair Swap event
+        │
+        v
+   checkPrice()          v4: StateView.getSlot0 -> sqrtPriceX96
+        │                Sushi: pair reserves
+        v
+ determineDirection()    which venue to sell WETH on first
+        │
+        v
+determineProfitability() V4Quoter + getAmountsOut, both legs, vs gas
+        │
+        v
+   executeTrade() ──> ArbitrageV4.executeTrade()
+                            │
+                            v
+                     poolManager.unlock()
+                            │
+                     ┌──────┴───────┐
+              start on v4      start on Sushi
+                     │              │
+              v4 swap +        take() WETH,
+              take() quote     Sushi swap,
+              Sushi swap       v4 swap back,
+              settle() base    settle() + net
+```
 
-### Off-chain: `bot.js`
-v4 has no pair contracts — all pools live in the PoolManager singleton, identified by a
-`PoolId` (the hash of the `PoolKey`: currency0, currency1, fee, tickSpacing, hooks).
-- Swap events are read from the **PoolManager**, filtered by PoolId.
-- Prices come from **StateView** (`getSlot0` → `sqrtPriceX96`) instead of reserves.
-- Trade simulation uses the **V4Quoter** for the v4 leg and `getAmountsOut` for the Sushi leg.
+**Execution paths.** Starting on Uniswap sells WETH into the v4 pool, takes the
+quote token, sells it on Sushiswap, then settles the v4 debt — the v4 swap itself
+acts as the loan. Starting on Sushiswap flash-takes WETH from the PoolManager,
+sells it on Sushi, swaps the proceeds back through v4, and nets the credit against
+the debt.
 
-Default pair: the **ETH/USDC 0.05%** v4 pool (native ETH, fee 500, tick spacing 10, no hooks)
-against Sushiswap's WETH/USDC pair. Change the pool in `config.json` (`UNISWAP_V4.POOL`) and
-the tokens in `.env`.
+**Pair selection.** The scanner ranks by whether a pair is genuinely tradable
+first, then by how often the spread cleared the fee hurdle. Output is written to a
+config-ready `pair-report.json`.
 
-## Requirements For Initial Setup
-- Install [NodeJS](https://nodejs.org/en/) **v20+** (see `.nvmrc`; `nvm use` will pick it up).
-- Create an [Alchemy](https://www.alchemy.com/) account with an Ethereum mainnet app.
+---
 
-## Setting Up
-### 1. Install Dependencies
-`npm install`
+## Technologies
 
-### 2. Create and Setup .env
-Copy `.env.example` to `.env` and fill in:
+| Layer | Choice | Notes |
+|---|---|---|
+| Contracts | Solidity 0.8.26, Cancun EVM | v4 requires transient storage |
+| DEX | Uniswap v4 (`PoolManager`, `StateView`, `V4Quoter`) | Singleton architecture, flash accounting |
+| DEX | Sushiswap V2 router/pairs | The other side of the arbitrage |
+| Framework | Hardhat 2.29 | Mainnet-fork testing |
+| Client | ethers v6, Node 20 (`.nvmrc`) | WebSocket subscriptions |
+| RPC | Alchemy | Mainnet + fork pinning |
+| Batching | Multicall3 | Scanner probes hundreds of pools per call |
+| Telemetry | AWS SDK v3 (DynamoDB, SSM) | Optional; see Security |
 
-- **ALCHEMY_API_KEY=""**
-- **ARB_FOR=""** — WETH (`0xC02a...756Cc2`); the token profit is measured in
-- **ARB_AGAINST=""** — USDC by default (`0xA0b8...eB48`)
-- **PRIVATE_KEY=""** — account that calls the arbitrage contract
-- **PRICE_DIFFERENCE=0.50** — % spread between v4 & Sushiswap required to attempt a trade
-- **ARB_AMOUNT=0.5** — WETH traded into the first leg
-- **UNITS=0** — price display only
-- **GAS_LIMIT=600000** / **GAS_PRICE=0.00000006** — used for profitability estimates
-- **FORK_BLOCK_NUMBER** — optional; pins fork tests to a block (faster, cacheable)
+---
 
-### 3. Run the Tests (mainnet fork)
-`npx hardhat test`
+## Deployment
 
-The tests deploy `ArbitrageV4` on a fork, create a price discrepancy by dumping USDC into the
-Sushiswap pair, and verify a profitable Sushi → v4 arbitrage plus the revert paths.
+Requires Node 20+ (`nvm use`) and an Alchemy mainnet key.
 
-### 4. Start Hardhat Node (local testing)
-`npx hardhat node`
+```bash
+npm install
+cp .env.example .env      # fill in ALCHEMY_API_KEY, PRIVATE_KEY, ARB_FOR/ARB_AGAINST
+npx hardhat test          # mainnet-fork suite
+```
 
-### 5. Deploy Smart Contract
-In a separate terminal:
-`npx hardhat run scripts/deploy.js --network localhost`
+Local run:
 
-Copy the deployed address into **ARBITRAGE_ADDRESS** inside *config.json*.
+```bash
+npx hardhat node
+npx hardhat run scripts/deploy.js --network localhost   # copy address into config.json
+node bot.js
+npx hardhat run scripts/manipulate.js --network localhost  # create an opportunity
+```
 
-### 6. Start the Bot
-`node bot.js`
+Choosing a pair:
 
-### 7. Manipulate Price
-In another terminal:
-`npx hardhat run scripts/manipulate.js --network localhost`
+```bash
+npm run scan     # ranks tradable pairs, writes pair-report.json
+```
 
-This impersonates a USDC whale and dumps USDC into the Sushiswap pair, pushing the WETH price
-up on Sushi so the bot detects a "sell on Sushiswap, buy on Uniswap v4" opportunity.
+Then set `ARB_AGAINST` to the chosen `quoteToken` and copy that entry's `v4Pool`
+settings into `config.json` under `UNISWAP_V4.POOL`.
 
-## Pair Scanner
+`PROJECT_SETTINGS.isLocal` switches between the local Hardhat node and mainnet;
+`isDeployed` controls whether a detected opportunity actually calls the contract —
+set it `false` to monitor mainnet without deploying anything.
 
-`npm run scan` (or `node scripts/scan-pairs.js`) finds and ranks every viable arbitrage pair:
+---
 
-1. Enumerates all Sushiswap pairs containing WETH with reserves above `MIN_WETH_RESERVE` (default 3 WETH).
-2. Derives the candidate v4 PoolIds for each token directly (hookless pools, 4 standard fee
-   tiers, native-ETH and WETH variants) and probes them via StateView — no event scanning.
-3. For each match, measures the current spread, the fee hurdle (v4 fee + 0.30% Sushi + gas),
-   a real round-trip simulation of `PROBE_AMOUNT` WETH in both directions (V4Quoter + router),
-   and how many of the past `SAMPLE_DAYS` days the spread exceeded the hurdle (archive samples).
-4. Ranks results and writes a config-ready `pair-report.json`.
+## Security
 
-How to read the output:
-- **"tradable"** means the probe round trip lands near the fee hurdle — both sides are deep
-  enough to actually execute. A pool showing "thin v4 side" with a persistently large spread
-  is a mirage: the v4 pool exists but has dust liquidity, which is *why* the spread persists.
-- **UNSAFE** flags tokens the contract cannot trade correctly (rebasing/fee-on-transfer, e.g. AMPL).
-- To adopt a pair: set `ARB_AGAINST` to its `quoteToken` in `.env` and copy its `v4Pool`
-  settings into `config.json` under `UNISWAP_V4.POOL`.
+**The contract cannot be drained by a caller.** `executeTrade` is `onlyOwner`, and
+`unlockCallback` rejects any caller that is not the PoolManager. Profit accrues in
+the contract and is withdrawn by the owner.
 
-Env knobs: `MIN_WETH_RESERVE`, `PROBE_AMOUNT`, `SAMPLE_DAYS`.
+**`minProfit` is the real safety mechanism.** The whole arbitrage is one
+transaction; if the round trip does not clear the threshold, it reverts and only
+gas is lost. There is no partially-executed state to unwind.
 
-## SOAR risk telemetry (optional)
+**Token assumptions are explicit.** The contract assumes standard ERC-20
+`approve`/`transfer` semantics. Fee-on-transfer and rebasing tokens are not
+supported — the scanner flags them (for example AMPL) as `UNSAFE` rather than
+ranking them, because they would silently break the settle step.
 
-The bot can emit risk events to the blockchain SOAR stack (the `SEIR-1` Terraform
-root), which correlates them, has Bedrock write an incident narrative, and raises
-an incident with SNS notification. See `helpers/soar.js`.
+**Telemetry holds no keys.** The optional SOAR integration is granted
+`dynamodb:PutItem` on one table and `ssm:GetParameter` on one flag. It cannot sign
+a transaction, and it cannot alter the pipeline it reports to. It is **off by
+default**: with `SOAR_ENABLED` unset, `helpers/soar.js` makes no AWS call at all
+and the bot behaves exactly as it does without the integration.
 
-**It is off by default and the bot does not depend on it.** With `SOAR_ENABLED`
-unset, every call in `helpers/soar.js` is a no-op, no AWS SDK call is made, and
-the bot behaves exactly as it does without the integration. Emit failures are
-logged and swallowed — telemetry can never stop trading.
+**Failure directions are deliberate.** Emitting telemetry is fail-open — an error
+is logged and swallowed, so monitoring can never stop trading. Reading the halt
+flag is fail-safe — on an SSM error the last known value is kept, so a transient
+outage cannot silently un-halt a halted bot.
 
-What it emits today: `TRADE_REVERTED` when an arbitrage transaction fails, and
-`BOT_ERROR` when profitability simulation throws. Both carry the pair, the
-direction, and the failure reason.
+**Never commit `.env`.** It holds a funded private key. `.gitignore` covers it.
 
-What it reads: `/defi/tb/trading-halted`. If the SOAR stack raises a CRITICAL
-finding for this bot *and* auto-halt is enabled on that stack, the flag is set
-and the bot skips execution until a human clears it. The halt check is cached
-for 30s, and if SSM is unreachable the last known value is kept rather than
-assuming "not halted".
+---
 
-To enable: set the variables in `.env.example` under *SOAR risk telemetry*, and
-attach the `defi-tb-event-writer` IAM policy (a `terraform output` of the SOAR
-stack) to whichever principal the bot runs as. The bot needs only
-`dynamodb:PutItem` on the events table and `ssm:GetParameter` on its halt flag —
-it is never given credentials that can modify the SOAR pipeline itself.
+## Repository Structure
 
-## About config.json
-Under `PROJECT_SETTINGS`:
-- **isLocal** — `true`: bot connects to `ws://127.0.0.1:8545` (hardhat node); `false`: mainnet via Alchemy.
-- **isDeployed** — whether the arbitrage contract is called when a trade is found. Set `false`
-  to monitor mainnet opportunities without a deployed contract.
+```
+contracts/
+  ArbitrageV4.sol        flash-accounting arbitrage inside unlockCallback
+bot.js                   event loop: watch -> price -> simulate -> execute
+helpers/
+  initialization.js      PoolManager, StateView, V4Quoter, Sushi, contract handles
+  helpers.js             PoolKey/PoolId construction, price math, simulation
+  soar.js                optional risk telemetry + halt-flag check
+  server.js              health endpoint
+scripts/
+  deploy.js              deploy ArbitrageV4
+  scan-pairs.js          rank arbitrageable pairs -> pair-report.json
+  manipulate.js          create a local opportunity for testing
+test/
+  Arbitrage.js           mainnet-fork suite
+config.json              v4 addresses, target pool, Sushiswap addresses
+```
 
-`UNISWAP_V4` holds the mainnet [deployment addresses](https://docs.uniswap.org/contracts/v4/deployments)
-(PoolManager, StateView, V4Quoter) and the target `POOL` parameters. `USE_NATIVE_ETH` should
-stay `true` for native-ETH pools (most v4 ETH liquidity); set it `false` for a WETH-denominated pool.
+---
 
-## Anatomy of bot.js
-The bot is composed of 5 functions:
-- *main()* — resolves the PoolKey/PoolId and Sushi pair, subscribes to Swap events on both venues
-- *checkPrice()* — v4 price from StateView slot0, Sushi price from reserves; returns the % difference
-- *determineDirection()* — decides which venue to sell WETH on first (`startOnUniswap`)
-- *determineProfitability()* — simulates both legs (V4Quoter + `getAmountsOut`) for `ARB_AMOUNT` and
-  compares the round trip against the estimated gas cost
-- *executeTrade()* — calls `arbitrage.executeTrade({ key, startOnUniswap, amountIn, minProfit })`
-  and reports balances
+## Lessons Learned
 
-## Limitations & Notes
-- The quote token must be a standard ERC-20 (no fee-on-transfer / non-standard approve like USDT).
-- Sushiswap's mainnet V2 pools are much thinner than they used to be — check pair liquidity
-  before sizing trades (`ARB_AMOUNT`).
-- Hook pools: pools with a non-zero hooks address may add fees or custom behavior the
-  simulation doesn't model; the default targets a hookless pool.
-- After running *manipulate.js*, restart the hardhat node and re-deploy to retest cleanly.
+**A persistent spread is usually a liquidity mirage.** The first scanner run
+ranked WETH/IMX and WETH/AAVE at the top — spreads above the fee hurdle on 14 of
+14 days. Their probe round trips lost over 98%: the v4 side held dust. The spread
+persisted *because* nobody could trade it. Ranking now requires a realistic round
+trip before a pair is considered at all.
+
+**v4 is a rewrite, not a port.** No pair addresses, no reserves, no per-pool
+events. Prices come from `sqrtPriceX96` in slot0, pools are identified by hashing
+a `PoolKey`, and the Quoter replaces reserve math. Assuming a V2 mental model
+produces code that compiles and is wrong.
+
+**Flash accounting removed a dependency, not just a fee.** Replacing the Balancer
+flash loan with v4's `take`/`settle` eliminated both the fee and the exposure to
+one lender's shrinking liquidity — the Balancer vault holds far less than it used
+to.
+
+**Hardcoded decimals are a silent bug.** The inherited helpers assumed 18 decimals
+for every token. That is correct for WETH and DAI and wrong for USDC (6), which
+would have produced price calculations off by twelve orders of magnitude.
+
+**Pin the fork block.** Unpinned fork tests re-fetch mainnet state on every run —
+slow, and subtly non-deterministic when liquidity shifts underneath. `FORK_BLOCK_NUMBER`
+took the suite from ~60s and intermittent failures to ~6s and stable.
+
+---
+
+## Future Improvements
+
+**Quoter-driven optimal sizing.** `ARB_AMOUNT` is fixed. Profit as a function of
+trade size is concave, so a ternary search over the quoter would find the
+profit-maximising size in roughly 15–20 calls — well inside one block. This is
+likely worth more P&L than any additional pair.
+
+**v4-versus-v4 arbitrage.** Trading two fee tiers of the same pair (0.05% against
+0.30% ETH/USDC) keeps both legs inside the PoolManager, so the round trip is
+cheaper and both sides are deep. The contract needs only modest changes.
+
+**Private transaction submission.** Public mempool submission invites sandwiching.
+Flashbots Protect or a similar relay would reduce that, and would make the
+`SANDWICH_SUSPECTED` telemetry event actionable rather than observational.
+
+**Multi-pair monitoring.** The bot watches one pair; the scanner already produces a
+ranked list. Watching the top N concurrently is mostly bookkeeping.
+
+**Richer telemetry.** `SLIPPAGE_EXCEEDED` and `PROFIT_ANOMALY` are scored by the
+SOAR pipeline but not yet emitted — both require comparing simulated to realized
+output after execution.
