@@ -10,16 +10,17 @@ const config = require("../config.json")
 
 async function main() {
   const arbitrage = await hre.ethers.deployContract(
-    "Arbitrage",
+    "ArbitrageV4",
     [
+      config.UNISWAP_V4.POOL_MANAGER_ADDRESS,
       config.SUSHISWAP.V2_ROUTER_02_ADDRESS,
-      config.UNISWAP.V2_ROUTER_02_ADDRESS      
+      config.TOKENS.WETH
     ]
   )
 
   await arbitrage.waitForDeployment()
 
-  console.log(`Arbitrage contract deployed to ${await arbitrage.getAddress()}`)
+  console.log(`ArbitrageV4 contract deployed to ${await arbitrage.getAddress()}`)
 }
 
 // We recommend this pattern to be able to use async/await everywhere

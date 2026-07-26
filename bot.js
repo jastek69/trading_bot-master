@@ -4,98 +4,93 @@ require("dotenv").config();
 
 const ethers = require("ethers")
 const config = require('./config.json')
-const { getTokenAndContract, getPairContract, getReserves, calculatePrice, simulate } = require('./helpers/helpers')
-const { provider, uFactory, uRouter, sFactory, sRouter, arbitrage } = require('./helpers/initialization')
+const { getTokenAndContract, getPairContract, buildPoolKey, getPoolId, calculateV4Price, calculateSushiPrice, simulate } = require('./helpers/helpers')
+const { provider, poolManager, stateView, quoter, sRouter, sFactory, arbitrage } = require('./helpers/initialization')
 
 // -- .ENV VALUES HERE -- //
 const arbFor = process.env.ARB_FOR // This is the address of token we are attempting to arbitrage (WETH)
-const arbAgainst = process.env.ARB_AGAINST // DAI
+const arbAgainst = process.env.ARB_AGAINST // USDC
 const units = process.env.UNITS // Used for price display/reporting
 const difference = process.env.PRICE_DIFFERENCE
+const arbAmount = process.env.ARB_AMOUNT || "0.5" // WETH traded into the first leg
 const gasLimit = process.env.GAS_LIMIT
 const gasPrice = process.env.GAS_PRICE
 
-let uPair, sPair, amount
+let poolKey, poolId, baseIsZero, sPair, weth, token, amount
 let isExecuting = false
 
 const main = async () => {
-  const { token0Contract, token1Contract, token0, token1 } = await getTokenAndContract(arbFor, arbAgainst, provider)
-  uPair = await getPairContract(uFactory, token0.address, token1.address, provider)
-  sPair = await getPairContract(sFactory, token0.address, token1.address, provider)
+  const { token0Contract: wethContract, token0: wethToken, token1: quoteToken } = await getTokenAndContract(arbFor, arbAgainst, provider)
+  weth = wethToken
+  token = quoteToken
 
-  console.log(`uPair Address: ${await uPair.getAddress()}`)
+  // Uniswap v4 pool (identified by its PoolKey/PoolId, not a pair contract)
+  const pool = buildPoolKey(weth.address, token.address, config.UNISWAP_V4.POOL)
+  poolKey = pool.key
+  baseIsZero = pool.baseIsZero
+  poolId = getPoolId(poolKey)
+
+  const [sqrtPriceX96] = await stateView.getSlot0(poolId)
+  if (sqrtPriceX96 === 0n) {
+    throw new Error(`Uniswap v4 pool ${poolId} is not initialized. Check UNISWAP_V4.POOL settings in config.json`)
+  }
+
+  // Sushiswap still uses V2 pair contracts
+  sPair = await getPairContract(sFactory, weth.address, token.address, provider)
+
+  console.log(`Uniswap v4 PoolId: ${poolId}`)
   console.log(`sPair Address: ${await sPair.getAddress()}\n`)
 
-  uPair.on('Swap', async () => {
-    if (!isExecuting) {
-      isExecuting = true
-
-      const priceDifference = await checkPrice('Uniswap', token0, token1)
-      const routerPath = await determineDirection(priceDifference)
-
-      if (!routerPath) {
-        console.log(`No Arbitrage Currently Available\n`)
-        console.log(`-----------------------------------------\n`)
-        isExecuting = false
-        return
-      }
-
-      const isProfitable = await determineProfitability(routerPath, token0Contract, token0, token1)
-
-      if (!isProfitable) {
-        console.log(`No Arbitrage Currently Available\n`)
-        console.log(`-----------------------------------------\n`)
-        isExecuting = false
-        return
-      }
-
-      const receipt = await executeTrade(routerPath, token0Contract, token1Contract)
-
-      isExecuting = false
-    }
+  // v4 emits all Swap events from the PoolManager singleton, filtered by PoolId
+  poolManager.on(poolManager.filters.Swap(poolId), async () => {
+    await handleSwapEvent('Uniswap v4')
   })
 
   sPair.on('Swap', async () => {
-    if (!isExecuting) {
-      isExecuting = true
-
-      const priceDifference = await checkPrice('Sushiswap', token0, token1)
-      const routerPath = await determineDirection(priceDifference)
-
-      if (!routerPath) {
-        console.log(`No Arbitrage Currently Available\n`)
-        console.log(`-----------------------------------------\n`)
-        isExecuting = false
-        return
-      }
-
-      const isProfitable = await determineProfitability(routerPath, token0Contract, token0, token1)
-
-      if (!isProfitable) {
-        console.log(`No Arbitrage Currently Available\n`)
-        console.log(`-----------------------------------------\n`)
-        isExecuting = false
-        return
-      }
-
-      const receipt = await executeTrade(routerPath, token0Contract, token1Contract)
-
-      isExecuting = false
-    }
+    await handleSwapEvent('Sushiswap')
   })
 
   console.log("Waiting for swap event...")
 }
 
-const checkPrice = async (_exchange, _token0, _token1) => {
+const handleSwapEvent = async (_exchange) => {
+  if (!isExecuting) {
+    isExecuting = true
+
+    const priceDifference = await checkPrice(_exchange)
+    const startOnUniswap = await determineDirection(priceDifference)
+
+    if (startOnUniswap === null) {
+      console.log(`No Arbitrage Currently Available\n`)
+      console.log(`-----------------------------------------\n`)
+      isExecuting = false
+      return
+    }
+
+    const isProfitable = await determineProfitability(startOnUniswap)
+
+    if (!isProfitable) {
+      console.log(`No Arbitrage Currently Available\n`)
+      console.log(`-----------------------------------------\n`)
+      isExecuting = false
+      return
+    }
+
+    await executeTrade(startOnUniswap)
+
+    isExecuting = false
+  }
+}
+
+const checkPrice = async (_exchange) => {
   isExecuting = true
 
   console.log(`Swap Initiated on ${_exchange}, Checking Price...\n`)
 
   const currentBlock = await provider.getBlockNumber()
 
-  const uPrice = await calculatePrice(uPair)
-  const sPrice = await calculatePrice(sPair)
+  const uPrice = await calculateV4Price(stateView, poolId, baseIsZero, weth.decimals, token.decimals)
+  const sPrice = await calculateSushiPrice(sPair, weth, token)
 
   const uFPrice = Number(uPrice).toFixed(units)
   const sFPrice = Number(sPrice).toFixed(units)
@@ -103,8 +98,8 @@ const checkPrice = async (_exchange, _token0, _token1) => {
 
   console.log(`Current Block: ${currentBlock}`)
   console.log(`-----------------------------------------`)
-  console.log(`UNISWAP   | ${_token1.symbol}/${_token0.symbol}\t | ${uFPrice}`)
-  console.log(`SUSHISWAP | ${_token1.symbol}/${_token0.symbol}\t | ${sFPrice}\n`)
+  console.log(`UNISWAP V4 | ${token.symbol}/${weth.symbol}\t | ${uFPrice}`)
+  console.log(`SUSHISWAP  | ${token.symbol}/${weth.symbol}\t | ${sFPrice}\n`)
   console.log(`Percentage Difference: ${priceDifference}%\n`)
 
   return priceDifference
@@ -115,106 +110,68 @@ const determineDirection = async (_priceDifference) => {
 
   if (_priceDifference >= difference) {
 
+    // WETH is more expensive on Uniswap v4: sell it there first
     console.log(`Potential Arbitrage Direction:\n`)
-    console.log(`Buy\t -->\t Uniswap`)
-    console.log(`Sell\t -->\t Sushiswap\n`)
-    return [uRouter, sRouter]
+    console.log(`Sell\t -->\t Uniswap V4`)
+    console.log(`Buy\t -->\t Sushiswap\n`)
+    return true
 
   } else if (_priceDifference <= -(difference)) {
 
+    // WETH is more expensive on Sushiswap: sell it there first
     console.log(`Potential Arbitrage Direction:\n`)
-    console.log(`Buy\t -->\t Sushiswap`)
-    console.log(`Sell\t -->\t Uniswap\n`)
-    return [sRouter, uRouter]
+    console.log(`Sell\t -->\t Sushiswap`)
+    console.log(`Buy\t -->\t Uniswap V4\n`)
+    return false
 
   } else {
     return null
   }
 }
 
-const determineProfitability = async (_routerPath, _token0Contract, _token0, _token1) => {
+const determineProfitability = async (_startOnUniswap) => {
   console.log(`Determining Profitability...\n`)
 
   // This is where you can customize your conditions on whether a profitable trade is possible...
 
-  let exchangeToBuy, exchangeToSell
-
-  if (await _routerPath[0].getAddress() === await uRouter.getAddress()) {
-    exchangeToBuy = "Uniswap"
-    exchangeToSell = "Sushiswap"
-  } else {
-    exchangeToBuy = "Sushiswap"
-    exchangeToSell = "Uniswap"
-  }
-
-  /**
-   * The helper file has quite a few functions that come in handy
-   * for performing specific tasks. Below we call the getReserves()
-   * function in the helper to get the reserves of a pair.
-   */
-
-  const uReserves = await getReserves(uPair)
-  const sReserves = await getReserves(sPair)
-
-  let minAmount
-
-  if (uReserves[0] > sReserves[0]) {
-    minAmount = BigInt(sReserves[0]) / BigInt(2)
-  } else {
-    minAmount = BigInt(uReserves[0]) / BigInt(2)
-  }
-
   try {
 
-    /**
-     * See getAmountsIn & getAmountsOut:
-     * - https://docs.uniswap.org/contracts/v2/reference/smart-contracts/library#getamountsin
-     * - https://docs.uniswap.org/contracts/v2/reference/smart-contracts/library#getamountsout
-     */
+    const amountIn = ethers.parseUnits(arbAmount, 'ether')
 
-    // This returns the amount of WETH needed to swap for X amount of DAI
-    const estimate = await _routerPath[0].getAmountsIn(minAmount, [_token0.address, _token1.address])
+    const { amountIn: wethIn, amountOut: wethOut } = await simulate(amountIn, _startOnUniswap, {
+      quoter,
+      key: poolKey,
+      baseIsZero,
+      sRouter,
+      wethAddress: weth.address,
+      tokenAddress: token.address
+    })
 
-    // This returns the amount of WETH for swapping X amount of DAI
-    const result = await _routerPath[1].getAmountsOut(estimate[1], [_token1.address, _token0.address])
-
-    console.log(`Estimated amount of WETH needed to buy enough DAI on ${exchangeToBuy}\t\t| ${ethers.formatUnits(estimate[0], 'ether')}`)
-    console.log(`Estimated amount of WETH returned after swapping DAI on ${exchangeToSell}\t| ${ethers.formatUnits(result[1], 'ether')}\n`)
-
-    const { amountIn, amountOut } = await simulate(estimate[0], _routerPath, _token0, _token1)
-    const amountDifference = amountOut - amountIn
+    const amountDifference = wethOut - wethIn
     const estimatedGasCost = gasLimit * gasPrice
 
     // Fetch account
     const account = new ethers.Wallet(process.env.PRIVATE_KEY, provider)
-
     const ethBalanceBefore = ethers.formatUnits(await provider.getBalance(account.address), 'ether')
-    const ethBalanceAfter = ethBalanceBefore - estimatedGasCost
-
-    const wethBalanceBefore = Number(ethers.formatUnits(await _token0Contract.balanceOf(account.address), 'ether'))
-    const wethBalanceAfter = amountDifference + wethBalanceBefore
-    const wethBalanceDifference = wethBalanceAfter - wethBalanceBefore
 
     const data = {
-      'ETH Balance Before': ethBalanceBefore,
-      'ETH Balance After': ethBalanceAfter,
+      'WETH In': wethIn,
+      'WETH Out': wethOut,
+      'WETH Gained/Lost': amountDifference,
+      '-': {},
+      'ETH Balance': ethBalanceBefore,
       'ETH Spent (gas)': estimatedGasCost,
-      '-': {},
-      'WETH Balance BEFORE': wethBalanceBefore,
-      'WETH Balance AFTER': wethBalanceAfter,
-      'WETH Gained/Lost': wethBalanceDifference,
-      '-': {},
-      'Total Gained/Lost': wethBalanceDifference - estimatedGasCost
+      'Total Gained/Lost': amountDifference - estimatedGasCost
     }
 
     console.table(data)
     console.log()
 
-    if (Number(amountOut) < Number(amountIn)) {
+    if (Number(wethOut) - Number(wethIn) <= estimatedGasCost) {
       return false
     }
 
-    amount = ethers.parseUnits(amountIn, 'ether')
+    amount = amountIn
     return true
 
   } catch (error) {
@@ -225,43 +182,39 @@ const determineProfitability = async (_routerPath, _token0Contract, _token0, _to
   }
 }
 
-const executeTrade = async (_routerPath, _token0Contract, _token1Contract) => {
+const executeTrade = async (_startOnUniswap) => {
   console.log(`Attempting Arbitrage...\n`)
-
-  let startOnUniswap
-
-  if (await _routerPath[0].getAddress() == await uRouter.getAddress()) {
-    startOnUniswap = true
-  } else {
-    startOnUniswap = false
-  }
 
   // Create Signer
   const account = new ethers.Wallet(process.env.PRIVATE_KEY, provider)
 
-  // Fetch token balances before
-  const tokenBalanceBefore = await _token0Contract.balanceOf(account.address)
+  // Profit accrues inside the arbitrage contract (as WETH or native ETH)
+  const arbitrageAddress = await arbitrage.getAddress()
+  const wethContract = new ethers.Contract(weth.address, ["function balanceOf(address) view returns (uint256)"], provider)
+
+  const contractBalanceBefore = await wethContract.balanceOf(arbitrageAddress) + await provider.getBalance(arbitrageAddress)
   const ethBalanceBefore = await provider.getBalance(account.address)
 
   if (config.PROJECT_SETTINGS.isDeployed) {
     const transaction = await arbitrage.connect(account).executeTrade(
-      startOnUniswap,
-      await _token0Contract.getAddress(),
-      await _token1Contract.getAddress(),
-      amount,
+      {
+        key: poolKey,
+        startOnUniswap: _startOnUniswap,
+        amountIn: amount,
+        minProfit: 0
+      },
       { gasLimit: process.env.GAS_LIMIT }
     )
 
-    const receipt = await transaction.wait()
+    await transaction.wait()
   }
 
   console.log(`Trade Complete:\n`)
 
-  // Fetch token balances after
-  const tokenBalanceAfter = await _token0Contract.balanceOf(account.address)
+  const contractBalanceAfter = await wethContract.balanceOf(arbitrageAddress) + await provider.getBalance(arbitrageAddress)
   const ethBalanceAfter = await provider.getBalance(account.address)
 
-  const tokenBalanceDifference = tokenBalanceAfter - tokenBalanceBefore
+  const contractBalanceDifference = contractBalanceAfter - contractBalanceBefore
   const ethBalanceDifference = ethBalanceBefore - ethBalanceAfter
 
   const data = {
@@ -269,11 +222,11 @@ const executeTrade = async (_routerPath, _token0Contract, _token1Contract) => {
     'ETH Balance After': ethers.formatUnits(ethBalanceAfter, 'ether'),
     'ETH Spent (gas)': ethers.formatUnits(ethBalanceDifference.toString(), 'ether'),
     '-': {},
-    'WETH Balance BEFORE': ethers.formatUnits(tokenBalanceBefore, 'ether'),
-    'WETH Balance AFTER': ethers.formatUnits(tokenBalanceAfter, 'ether'),
-    'WETH Gained/Lost': ethers.formatUnits(tokenBalanceDifference.toString(), 'ether'),
+    'Contract WETH+ETH Before': ethers.formatUnits(contractBalanceBefore, 'ether'),
+    'Contract WETH+ETH After': ethers.formatUnits(contractBalanceAfter, 'ether'),
+    'WETH Gained/Lost': ethers.formatUnits(contractBalanceDifference.toString(), 'ether'),
     '-': {},
-    'Total Gained/Lost': `${ethers.formatUnits((tokenBalanceDifference - ethBalanceDifference).toString(), 'ether')} ETH`
+    'Total Gained/Lost': `${ethers.formatUnits((contractBalanceDifference - ethBalanceDifference).toString(), 'ether')} ETH`
   }
 
   console.table(data)
