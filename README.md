@@ -112,6 +112,33 @@ How to read the output:
 
 Env knobs: `MIN_WETH_RESERVE`, `PROBE_AMOUNT`, `SAMPLE_DAYS`.
 
+## SOAR risk telemetry (optional)
+
+The bot can emit risk events to the blockchain SOAR stack (the `SEIR-1` Terraform
+root), which correlates them, has Bedrock write an incident narrative, and raises
+an incident with SNS notification. See `helpers/soar.js`.
+
+**It is off by default and the bot does not depend on it.** With `SOAR_ENABLED`
+unset, every call in `helpers/soar.js` is a no-op, no AWS SDK call is made, and
+the bot behaves exactly as it does without the integration. Emit failures are
+logged and swallowed — telemetry can never stop trading.
+
+What it emits today: `TRADE_REVERTED` when an arbitrage transaction fails, and
+`BOT_ERROR` when profitability simulation throws. Both carry the pair, the
+direction, and the failure reason.
+
+What it reads: `/defi/tb/trading-halted`. If the SOAR stack raises a CRITICAL
+finding for this bot *and* auto-halt is enabled on that stack, the flag is set
+and the bot skips execution until a human clears it. The halt check is cached
+for 30s, and if SSM is unreachable the last known value is kept rather than
+assuming "not halted".
+
+To enable: set the variables in `.env.example` under *SOAR risk telemetry*, and
+attach the `defi-tb-event-writer` IAM policy (a `terraform output` of the SOAR
+stack) to whichever principal the bot runs as. The bot needs only
+`dynamodb:PutItem` on the events table and `ssm:GetParameter` on its halt flag —
+it is never given credentials that can modify the SOAR pipeline itself.
+
 ## About config.json
 Under `PROJECT_SETTINGS`:
 - **isLocal** — `true`: bot connects to `ws://127.0.0.1:8545` (hardhat node); `false`: mainnet via Alchemy.

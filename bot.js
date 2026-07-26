@@ -6,6 +6,7 @@ const ethers = require("ethers")
 const config = require('./config.json')
 const { getTokenAndContract, getPairContract, buildPoolKey, getPoolId, calculateV4Price, calculateSushiPrice, simulate } = require('./helpers/helpers')
 const { provider, poolManager, stateView, quoter, sRouter, sFactory, arbitrage } = require('./helpers/initialization')
+const { EVENT_TYPES, emitDefiEvent, isTradingHalted, SOAR_ENABLED } = require('./helpers/soar')
 
 // -- .ENV VALUES HERE -- //
 const arbFor = process.env.ARB_FOR // This is the address of token we are attempting to arbitrage (WETH)
@@ -71,6 +72,15 @@ const handleSwapEvent = async (_exchange) => {
 
     if (!isProfitable) {
       console.log(`No Arbitrage Currently Available\n`)
+      console.log(`-----------------------------------------\n`)
+      isExecuting = false
+      return
+    }
+
+    // The SOAR stack sets this flag when it raises a CRITICAL finding for
+    // this bot. Clearing it is a human action.
+    if (await isTradingHalted()) {
+      console.log(`Trading halted by SOAR - skipping execution\n`)
       console.log(`-----------------------------------------\n`)
       isExecuting = false
       return
@@ -178,6 +188,13 @@ const determineProfitability = async (_startOnUniswap) => {
     console.log(error)
     console.log(`\nError occurred while trying to determine profitability...\n`)
     console.log(`This can typically happen because of liquidity issues, see README for more information.\n`)
+
+    await emitDefiEvent({
+      type: EVENT_TYPES.BOT_ERROR,
+      pair: `${weth.symbol}/${token.symbol}`,
+      detail: `Profitability simulation failed: ${error.shortMessage || error.message}`,
+    })
+
     return false
   }
 }
@@ -196,17 +213,34 @@ const executeTrade = async (_startOnUniswap) => {
   const ethBalanceBefore = await provider.getBalance(account.address)
 
   if (config.PROJECT_SETTINGS.isDeployed) {
-    const transaction = await arbitrage.connect(account).executeTrade(
-      {
-        key: poolKey,
-        startOnUniswap: _startOnUniswap,
-        amountIn: amount,
-        minProfit: 0
-      },
-      { gasLimit: process.env.GAS_LIMIT }
-    )
+    try {
+      const transaction = await arbitrage.connect(account).executeTrade(
+        {
+          key: poolKey,
+          startOnUniswap: _startOnUniswap,
+          amountIn: amount,
+          minProfit: 0
+        },
+        { gasLimit: process.env.GAS_LIMIT }
+      )
 
-    await transaction.wait()
+      await transaction.wait()
+    } catch (error) {
+      // A revert here is the routine outcome of losing the race, so this is
+      // not an error path for the bot - but the SOAR correlation agent needs
+      // the signal to spot a run of them.
+      console.log(`Trade failed: ${error.shortMessage || error.message}\n`)
+
+      await emitDefiEvent({
+        type: EVENT_TYPES.TRADE_REVERTED,
+        pair: `${weth.symbol}/${token.symbol}`,
+        txHash: error.transaction?.hash || error.receipt?.hash,
+        valueUsd: undefined,
+        detail: `${_startOnUniswap ? 'v4->Sushi' : 'Sushi->v4'}: ${error.shortMessage || error.message}`,
+      })
+
+      return
+    }
   }
 
   console.log(`Trade Complete:\n`)

@@ -7,6 +7,8 @@
     "scan": "node scripts/scan-pairs.js"
   },
   "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.1095.0",
+    "@aws-sdk/client-ssm": "^3.1095.0",
     "@uniswap/v4-core": "^1.0.2",
     "@uniswap/v4-periphery": "^1.0.3",
     "big.js": "^6.2.1",
