@@ -10,7 +10,9 @@ needs no upfront capital and pays no loan fee — the arbitrage funds itself wit
 a single transaction, and reverts as a whole if it would not profit.
 
 Ships with a pair scanner that ranks which markets are actually arbitrageable, and
-optional risk telemetry that feeds a separate SOAR pipeline.
+optional risk telemetry that feeds a separate SOAR pipeline —
+[SEIR1-SOAR-blockchain-infrastructure](https://github.com/jastek69/SEIR1-SOAR-blockchain-infrastructure),
+which correlates the events into triaged incidents and a daily executive report.
 
 ---
 
@@ -167,6 +169,11 @@ ranking them, because they would silently break the settle step.
 a transaction, and it cannot alter the pipeline it reports to. It is **off by
 default**: with `SOAR_ENABLED` unset, `helpers/soar.js` makes no AWS call at all
 and the bot behaves exactly as it does without the integration.
+
+The consuming pipeline lives in
+[SEIR1-SOAR-blockchain-infrastructure](https://github.com/jastek69/SEIR1-SOAR-blockchain-infrastructure).
+`helpers/soar.js` is a deliberate standalone copy rather than a shared package, so
+this repository clones and runs on its own with no dependency on that stack.
 
 **Failure directions are deliberate.** Emitting telemetry is fail-open — an error
 is logged and swallowed, so monitoring can never stop trading. Reading the halt
