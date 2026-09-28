@@ -25,7 +25,9 @@ module.exports = {
     },
     mainnet: {
       url: `https://eth-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`,
-      accounts: [privateKey]
+      // An empty PRIVATE_KEY fails Hardhat config validation for every command,
+      // including local fork tests, so only attach an account when one is set
+      ...(privateKey ? { accounts: [privateKey] } : {}),
     }
   }
 };

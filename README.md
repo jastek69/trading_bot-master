@@ -1,3 +1,12 @@
+# Uniswap v4 Arbitrage Bot
+
+![Solidity](https://img.shields.io/badge/Solidity-0.8.26%20Cancun-363636?logo=solidity)
+![Uniswap](https://img.shields.io/badge/DEX-Uniswap%20v4-FF007A)
+![Sushiswap](https://img.shields.io/badge/DEX-Sushiswap%20V2-0E0F23)
+![Hardhat](https://img.shields.io/badge/Tests-Hardhat%20mainnet%20fork-FFF100)
+
+---
+
 # Executive Summary
 
 An arbitrage bot that trades a **Uniswap v4** pool against a **Sushiswap (V2)**
@@ -203,6 +212,14 @@ test/
   Arbitrage.js           mainnet-fork suite
 config.json              v4 addresses, target pool, Sushiswap addresses
 ```
+
+| Document | Covers |
+|---|---|
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Component diagram, decision loop, atomic-execution sequence diagram |
+| [`docs/TESTING.md`](docs/TESTING.md) | What the fork suite asserts, pinning the fork block, scanner verification, CI, known gaps |
+| [`SECURITY.md`](SECURITY.md) | Vulnerability reporting, contract security model, secrets, failure directions |
+| [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | Compile on every push; mainnet-fork tests when `ALCHEMY_API_KEY` is set |
+
 
 ---
 
