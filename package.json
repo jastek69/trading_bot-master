@@ -4,7 +4,9 @@
   "description": "Uniswap v4 / Sushiswap arbitrage bot using v4 flash accounting",
   "scripts": {
     "start": "node bot.js",
-    "scan": "node scripts/scan-pairs.js"
+    "scan": "node scripts/scan-pairs.js",
+    "compile": "npx hardhat compile",
+    "test": "npx hardhat test"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.1095.0",

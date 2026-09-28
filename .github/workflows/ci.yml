@@ -1,0 +1,38 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    env:
+      ALCHEMY_API_KEY: ${{ secrets.ALCHEMY_API_KEY }}
+      FORK_BLOCK_NUMBER: ${{ vars.FORK_BLOCK_NUMBER }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Compile contracts
+        run: npx hardhat compile
+
+      # Fork tests need a mainnet RPC. Without the secret (forks, first-time
+      # setup) the job still proves the contracts compile.
+      - name: Mainnet-fork tests
+        if: ${{ env.ALCHEMY_API_KEY != '' }}
+        run: npx hardhat test
+
+      - name: Fork tests skipped
+        if: ${{ env.ALCHEMY_API_KEY == '' }}
+        run: echo "::notice::ALCHEMY_API_KEY secret not set; skipped mainnet-fork tests."
