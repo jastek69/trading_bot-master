@@ -220,7 +220,6 @@ config.json              v4 addresses, target pool, Sushiswap addresses
 | [`SECURITY.md`](SECURITY.md) | Vulnerability reporting, contract security model, secrets, failure directions |
 | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | Compile on every push; mainnet-fork tests when `ALCHEMY_API_KEY` is set |
 
-
 ---
 
 ## Lessons Learned
